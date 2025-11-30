@@ -1,0 +1,5 @@
+node_modules/
+.devenv/
+.direnv/
+.git
+.jj
