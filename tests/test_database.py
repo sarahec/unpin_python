@@ -1,5 +1,5 @@
 import pytest
-from database import Database
+from unpin_python.database import Database
 
 @pytest.fixture
 def mem_db():
@@ -12,7 +12,8 @@ def test_create_tables(mem_db):
     """Test if tables are created successfully."""
     # Check if tables exist by trying to select from them
     try:
-        mem_db.cursor.execute("SELECT * FROM scan_results")
+        mem_db.cursor.execute("SELECT * FROM scans")
+        mem_db.cursor.execute("SELECT * FROM repositories")
         mem_db.cursor.execute("SELECT * FROM search_runs")
         mem_db.cursor.execute("SELECT * FROM search_matches")
     except Exception as e:
@@ -58,5 +59,5 @@ def test_insert_and_get_search(mem_db):
     assert len(report_data) == 2
     
     # Check that only the matching repos are returned
-    report_repos = {f"{item['owner']}/{item['repo']}" for item in report_data}
-    assert report_repos == {"user/repo1", "user/repo2"}
+    packages = {item['package'] for item in report_data}
+    assert packages == {pkg}

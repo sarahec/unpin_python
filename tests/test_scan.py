@@ -1,6 +1,6 @@
 import pytest
 import os
-from scan import run_scan, extract_repo_info
+from unpin_python.scan import run_scan, extract_repo_info
 from unittest.mock import MagicMock, patch
 
 # A mock of a nix file content
@@ -35,9 +35,9 @@ def test_extract_repo_info(tmp_path):
     assert result[0]['repo'] == 'test-repo'
     assert result[0]['path'] == 'default.nix'
 
-@patch('scan.find_package_files')
-@patch('scan.extract_repo_info')
-@patch('scan.Database')
+@patch('unpin_python.scan.find_package_files')
+@patch('unpin_python.scan.extract_repo_info')
+@patch('unpin_python.scan.Database')
 def test_run_scan(MockDatabase, mock_extract_repo, mock_find_files, tmp_path):
     """Test the main run_scan function using mocks."""
     # Setup mocks

@@ -3,7 +3,7 @@ import re
 import subprocess
 import sys
 from tqdm import tqdm
-from database import Database
+from .database import Database
 
 def find_package_files(search_dir, package_name):
     try:

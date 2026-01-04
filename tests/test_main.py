@@ -1,5 +1,5 @@
 import pytest
-from main import parse_specifier
+from unpin_python.main import parse_specifier
 
 def test_parse_specifier_with_version():
     """Test parsing a specifier with a version."""

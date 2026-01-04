@@ -5,7 +5,7 @@ import time
 import requests
 from dotenv import load_dotenv
 from tqdm import tqdm
-from database import Database
+from .database import Database
 
 def search_github_all_repos(query, token):
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}

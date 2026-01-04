@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "unpin-python"
+version = "0.1.0"
+description = "A tool to identify pinned Python build tools in nixpkgs."
+authors = [
+  { name = "Sarah Clark", email = "seclark@nextquestion.net" }
+]
+dependencies = [
+  "requests",
+  "python-dotenv",
+  "tqdm",
+]
+requires-python = ">=3.8"
+
+[project.scripts]
+unpin-python = "unpin_python.main:main"
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "pytest-mock",
+]

@@ -2,10 +2,10 @@ import argparse
 import os
 import re
 
-from scan import run_scan
-from search import run_search
-from report import run_report
-from reset import run_reset
+from .scan import run_scan
+from .search import run_search
+from .report import run_report
+from .reset import run_reset
 
 DB_PATH = 'db.sqlite'
 
@@ -13,7 +13,7 @@ def parse_specifier(spec_str):
     match = re.search(r'(==|!=|>=|<=|>|<)', spec_str)
     if match:
         op = match.group(1)
-        parts = re.split(f'({re.escape(op)})', spec_str, 1)
+        parts = re.split(f'({re.escape(op)})', spec_str, maxsplit=1)
         if len(parts) >= 3:
             package_name = parts[0].strip()
             version_part = parts[2].strip()

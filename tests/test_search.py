@@ -1,5 +1,5 @@
 import pytest
-from search import run_search
+from unpin_python.search import run_search, search_github_all_repos
 from unittest.mock import MagicMock, patch
 
 # Mock response from GitHub API
@@ -15,9 +15,9 @@ MOCK_GITHUB_API_RESPONSE = {
     ]
 }
 
-@patch('search.search_github_all_repos')
-@patch('search.Database')
-@patch('search.load_dotenv') # Don't need to load .env in tests
+@patch('unpin_python.search.search_github_all_repos')
+@patch('unpin_python.search.Database')
+@patch('unpin_python.search.load_dotenv') # Don't need to load .env in tests
 def test_run_search(mock_dotenv, MockDatabase, mock_search_github):
     """Test the main run_search function using mocks."""
     # Setup mocks

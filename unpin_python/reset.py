@@ -1,4 +1,4 @@
-from database import Database
+from .database import Database
 
 def run_reset(package_names, db_path):
     """Deletes all data for the specified package(s) from the database."""

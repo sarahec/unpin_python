@@ -1,5 +1,5 @@
 from collections import defaultdict
-from database import Database
+from .database import Database
 
 def run_report(package_name, canonical_search_string, db_path):
     """Generates a grouped and sorted report in the format: path<TAB>package1, package2..."""
