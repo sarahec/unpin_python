@@ -55,7 +55,7 @@ def extract_repo_info(file_path):
             owner_match = owner_pattern.search(block_content)
             repo_match = repo_pattern.search(block_content)
             if owner_match and repo_match:
-                project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+                project_root = os.path.abspath(os.path.dirname(__file__))
                 relative_path = os.path.relpath(file_path, start=project_root)
                 found_repos.append({"path": relative_path, "owner": owner_match.group(1), "repo": repo_match.group(1)})
         return found_repos
@@ -67,7 +67,7 @@ def run_scan():
     """Scans nixpkgs for hatchling packages and populates the database."""
     print("--- Starting Nixpkgs Scan ---")
     script_dir = os.path.dirname(__file__)
-    nixpkgs_path = os.path.abspath(os.path.join(script_dir, "../../nixpkgs"))
+    nixpkgs_path = os.path.abspath(os.path.join(script_dir, "../nixpkgs"))
 
     if not os.path.isdir(nixpkgs_path):
         print(f"Error: Nixpkgs directory not found at {nixpkgs_path}")
@@ -122,8 +122,7 @@ def search_github(query, token):
 
 def run_search(limit=None, repo_str=None):
     """Searches GitHub for packages based on database entries or a specific repo string."""
-    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-    load_dotenv(dotenv_path=dotenv_path)
+    load_dotenv()
     github_token = os.getenv("GITHUB_TOKEN")
 
     if not github_token or github_token == "your_github_token_here":
