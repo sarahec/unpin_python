@@ -21,11 +21,11 @@ def search_github_all_repos(query, token):
                 all_items.extend(data.get("items", []))
                 url = response.links.get('next', {}).get('url')
                 pbar.update(1)
-                if url: time.sleep(10) # Adhere to rate limit
+                if url: time.sleep(10)
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 403:
                     tqdm.write(f"-> Rate limit hit. Waiting 60s for {url}...", file=sys.stderr)
-                    time.sleep(60) # Wait 1 minute if rate limit is hit
+                    time.sleep(60)
                 else:
                     tqdm.write(f"HTTP error for {url}: {e}", file=sys.stderr)
                     break
@@ -42,8 +42,8 @@ def run_search(package_name, search_string_with_spaces, canonical_search_string,
         return
         
     db = Database(db_path)
-    scan_result = db.get_scan_result(package_name)
-    if not scan_result or not scan_result.get('repositories'):
+    local_repos = db.get_scan_repositories(package_name)
+    if not local_repos:
         print(f"No scan data found for '{package_name}'. A scan must be run at least once.")
         db.close()
         return
@@ -66,16 +66,15 @@ def run_search(package_name, search_string_with_spaces, canonical_search_string,
     
     if not found_repos_on_github:
         print("No results found on GitHub for either query variant.")
-        db.insert_search_result(package_name, canonical_search_string, [])
+        db.insert_search_result(package_name, canonical_search_string, set())
         db.close()
         return
         
     print(f"\nFound {len(found_repos_on_github)} unique repositories on GitHub with matches.")
 
-    local_repos = scan_result['repositories']
-    matches = [repo_info for repo_info in local_repos if f"{repo_info['owner']}/{repo_info['repo']}" in found_repos_on_github]
-    
-    stored_count = db.insert_search_result(package_name, canonical_search_string, matches)
+    # In the new schema, we just store the full set of repos found on GH.
+    # The report command is responsible for joining this with the scan data.
+    search_id = db.insert_search_result(package_name, canonical_search_string, found_repos_on_github)
     db.close()
     
-    print(f"Search complete. Stored {stored_count} matches in the database for '{canonical_search_string}'.")
+    print(f"Search complete. Stored {len(found_repos_on_github)} found GitHub repos under search ID {search_id}.")

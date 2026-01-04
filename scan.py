@@ -2,7 +2,6 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
 from tqdm import tqdm
 from database import Database
 
