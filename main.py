@@ -44,7 +44,7 @@ def extract_repo_info(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        block_pattern = re.compile(r'fetchFromGitHub\s*\{([\s\S]*?)\};', re.DOTALL)
+        block_pattern = re.compile(r'fetchFromGitHub\s*{\s*([\s\S]*?)\s*};', re.DOTALL)
         owner_pattern = re.compile(r'owner\s*=\s*"([^"]+)"')
         repo_pattern = re.compile(r'repo\s*=\s*"([^"]+)"')
         
@@ -83,36 +83,46 @@ def run_scan(package_name):
     count = 0
     print(f"Upserting {len(unique_packages)} unique packages...")
     for pkg in tqdm(unique_packages, desc="Updating database"):
-        # This will insert a new doc or update an existing one, resetting search flags.
         pkg_data = {**pkg, 'package': package_name, 'searched_github': False, 'found_on_github': False}
         db.upsert(pkg_data, (Package.owner == pkg['owner']) & (Package.repo == pkg['repo']))
         count += 1
             
     print(f"Scan complete. Upserted {count} packages for '{package_name}'.")
 
-# --- GitHub Searching Logic (and the rest of the file remains the same) ---
-def search_github(query, token):
+# --- GitHub Searching Logic ---
+def search_github_all_repos(query, token):
+    """Performs a paginated search across all of GitHub."""
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
-    url = f"https://api.github.com/search/code?q={query}"
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            tqdm.write(f"-> Got 403. Waiting 10s and retrying...", file=sys.stderr)
-            time.sleep(10)
+    url = f"https://api.github.com/search/code?q={query}&per_page=100"
+    all_items = []
+    
+    with tqdm(desc="Fetching GitHub pages") as pbar:
+        while url:
             try:
                 response = requests.get(url, headers=headers)
                 response.raise_for_status()
-                return response.json()
-            except requests.exceptions.RequestException as retry_e:
-                tqdm.write(f"  -> Retry failed: {retry_e}", file=sys.stderr)
-    except requests.exceptions.RequestException as e:
-        tqdm.write(f"Request error: {e}", file=sys.stderr)
-    return None
+                data = response.json()
+                items = data.get("items", [])
+                all_items.extend(items)
+                
+                url = response.links.get('next', {}).get('url')
+                pbar.update(1)
+                if url:
+                    time.sleep(6) # Adhere to rate limit
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 403:
+                    tqdm.write("-> Rate limit hit. Waiting 60s...", file=sys.stderr)
+                    time.sleep(60)
+                else:
+                    tqdm.write(f"HTTP error: {e}", file=sys.stderr)
+                    break
+            except requests.exceptions.RequestException as e:
+                tqdm.write(f"Request error: {e}", file=sys.stderr)
+                break
+    return all_items
 
-def run_search(package_name, version=None, limit=None, repo_str=None):
+
+def run_search(package_name, version=None):
     load_dotenv()
     github_token = os.getenv("GITHUB_TOKEN")
     if not github_token or github_token == "your_github_token_here":
@@ -123,34 +133,33 @@ def run_search(package_name, version=None, limit=None, repo_str=None):
     Package = Query()
     
     search_term = f"{package_name}=={version}" if version else package_name
+    print(f"--- Starting GitHub-wide search for '{search_term}' in pyproject.toml ---")
 
-    if repo_str:
-        owner, repo = repo_str.split('/', 1)
-        print(f"--- Searching for '{search_term}' in {owner}/{repo} ---")
-        query = f'"{search_term}"+filename:pyproject.toml+repo:{owner}/{repo}'
-        result = search_github(query, github_token)
-        found = result and result.get("total_count", 0) > 0
-        print(f"-> {'Match FOUND' if found else 'No match found'}.")
-        db.update({'searched_github': True, 'found_on_github': found}, (Package.owner == owner) & (Package.repo == repo))
-    else:
-        print(f"--- Starting GitHub Search for '{search_term}' ---")
-        unsearched = db.search((Package.searched_github == False) & (Package.package == package_name))
-        if not unsearched:
-            print("No unsearched packages for this package name found.")
-            return
-            
-        packages_to_search = unsearched[:limit] if limit else unsearched
-        print(f"Searching {len(packages_to_search)} of {len(unsearched)} unsearched packages.")
+    query = f'"{search_term}"+filename:pyproject.toml'
+    github_results = search_github_all_repos(query, github_token)
+    
+    if not github_results:
+        print("No results found on GitHub.")
+        return
         
-        for package in tqdm(packages_to_search, desc="Searching GitHub"):
-            query = f'"{search_term}"+filename:pyproject.toml+repo:{package["owner"]}/{package["repo"]}'
-            result = search_github(query, github_token)
-            found = result and result.get("total_count", 0) > 0
-            db.update({'searched_github': True, 'found_on_github': found}, doc_ids=[package.doc_id])
-            time.sleep(6)
-    print("Search complete.")
+    # Create a set of owner/repo strings for efficient lookup
+    found_repos = {item['repository']['full_name'] for item in github_results}
+    print(f"\nFound {len(found_repos)} unique repositories on GitHub with matches.")
 
+    # Now, update the local database
+    print("Updating local database...")
+    all_local_packages = db.search(Package.package == package_name)
+    
+    for package in tqdm(all_local_packages, desc="Updating local DB"):
+        repo_full_name = f"{package['owner']}/{package['repo']}"
+        found = repo_full_name in found_repos
+        db.update({'searched_github': True, 'found_on_github': found}, doc_ids=[package.doc_id])
+        
+    print("Search and database update complete.")
+
+# --- Reporting Logic ---
 def run_report(package_name):
+    # (The report function remains the same)
     print(f"--- Generating Report for '{package_name}' ---")
     db = TinyDB(DB_PATH)
     matches = db.search((Query().found_on_github == True) & (Query().package == package_name))
@@ -162,6 +171,7 @@ def run_report(package_name):
         print(f"  - Nixpkgs Path: {match['path']}")
         print(f"    Repository:   {match['owner']}/{match['repo']}\n")
 
+# --- Main CLI Logic ---
 def main():
     parser = argparse.ArgumentParser(description="Find package versions in Nixpkgs and verify on GitHub.")
     parser.add_argument("package", help="The name of the package to process (e.g., 'hatchling').")
@@ -169,11 +179,8 @@ def main():
 
     subparsers.add_parser("scan", help="Scan nixpkgs and populate the database, resetting search status for found packages.")
     
-    search_parser = subparsers.add_parser("search", help="Search GitHub for the package.")
+    search_parser = subparsers.add_parser("search", help="Search all of GitHub for the package and update local DB.")
     search_parser.add_argument("--version", help="The specific version to search for (e.g., '1.27.0'). Optional.")
-    search_group = search_parser.add_mutually_exclusive_group()
-    search_group.add_argument("-l", "--limit", type=positive_int, help="Limit the number of unsearched repositories to process.")
-    search_group.add_argument("--repo", type=repo_format, help="Search a specific repository in 'owner/repo' format.")
 
     subparsers.add_parser("report", help="Report which nixpkgs files have a GitHub match for the package.")
     
@@ -185,7 +192,7 @@ def main():
     if args.command == "scan":
         run_scan(args.package)
     elif args.command == "search":
-        run_search(args.package, version=args.version, limit=args.limit, repo_str=args.repo)
+        run_search(args.package, version=args.version)
     elif args.command == "report":
         run_report(args.package)
     elif args.command == "all":

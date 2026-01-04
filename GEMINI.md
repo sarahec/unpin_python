@@ -61,3 +61,7 @@ The CLI tool is fully functional. It can effectively:
 *   Generate a clear report of relevant findings.
 
 This comprehensive approach allows for efficient tracking and analysis of Nixpkgs packages' dependencies on GitHub.
+
+## Agent Operational Guidelines
+
+*   **Commit Tested Code**: After completing and testing any code modifications, ensure changes are committed with a descriptive message.
