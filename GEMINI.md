@@ -1,67 +1,83 @@
-# Project Summary: Nixpkgs Hatchling Explorer
+# Functional Specification: Nixpkgs Version Correlation Tool
 
-This project involved developing a Python CLI tool to identify Nixpkgs packages that utilize a specific version of `hatchling` (`1.27.0`) and are sourced from GitHub, then to verify their presence on GitHub's code search.
+This tool correlates Nixpkgs package expressions with GitHub code search results to identify packages that are pinned to specific dependency versions (e.g., `hatchling==1.27.0`) and have corresponding source repositories on GitHub.
 
-## Tools and Technologies Used
+## Overview
 
-*   **Python 3**: The primary programming language.
-*   **requests**: For making HTTP requests to the GitHub API.
-*   **python-dotenv**: For loading API tokens from `.env` files.
-*   **tinydb**: A lightweight, document-oriented database used for local state management (storing Nixpkgs package data and GitHub search status).
-*   **tqdm**: For displaying progress bars during lengthy operations (e.g., GitHub API searches).
-*   **argparse**: Python's standard library for creating command-line interfaces.
-*   **ripgrep (`rg`)**: A powerful command-line search tool used for fast content searching within Nixpkgs files.
+The tool operates in three primary phases:
+1.  **Scan**: Analyzes a local Nixpkgs repository to find package definitions using `fetchFromGitHub` and referencing a target package name.
+2.  **Search**: Queries the GitHub Code Search API for specific version strings in `pyproject.toml` files across the found repositories.
+3.  **Report**: Correlates the scan data with search results to produce a report of Nixpkgs files that likely need updates.
 
-## Development Steps & Key Features
+## Architecture & Data Model
 
-The development progressed through several iterative steps, building up the functionality:
+The tool is written in Python and uses an SQLite database (`db.sqlite`) for state management and data persistence.
 
-1.  **Initial GitHub Search Program (Evolved into CLI)**
-    *   A basic Python script (`github_search/main.py`) was initially created to query the GitHub Code Search API.
-    *   **Challenge**: Initial attempts at URL encoding led to `422 Client Error: Unprocessable Entity` due to `requests` over-encoding special characters like `:` in search qualifiers (e.g., `in:pyproject`).
-    *   **Resolution**: Discovered that GitHub's API expects certain structured query components (`filename:`, `repo:`) to be part of the `q` parameter's value, which `requests` handles correctly without explicit manual encoding of internal components. Using `filename:` proved to be the correct qualifier for file targeting.
-    *   **Feature**: Implemented pagination to retrieve all available search results (up to GitHub's internal limits).
-    *   **Feature**: Extracted specific fields (`path`, `owner`, `repo`) from the raw API response.
-    *   *Note: This initial program's functionality was later integrated and expanded within the `fix_hatchling` CLI tool.*
+### Database Schema
 
-2.  **Nixpkgs Package Discovery (`fix_hatchling/main.py` - initial phase)**:
-    *   A new script was developed to scan the local `../nixpkgs` directory.
-    *   **Goal**: Find Nix expressions that use `hatchling` as a build input and `fetchFromGitHub` for their source.
-    *   **Challenge**: Initial search logic was too strict, requiring both `hatchling` and `fetchFromGitHub` to be in the *same file*, which yielded no results.
-    *   **Resolution**: Corrected the logic to first find all files mentioning `hatchling`, and then, from those files, extract `owner` and `repo` information from any `fetchFromGitHub` blocks present. This is a more accurate reflection of how `hatchling` (a build backend) is used in Nixpkgs.
-    *   **Feature**: Used `ripgrep` for efficient file content searching.
+The database uses a normalized schema with the following tables:
 
-3.  **State Management with TinyDB**:
-    *   Integrated `tinydb` to store the extracted Nixpkgs package information in `db.json`.
-    *   **Feature**: Each entry in the database includes `path`, `owner`, `repo`, and two new flags: `searched_github` (default `false`) and `found_on_github` (default `false`). This allows the tool to keep track of its progress and results.
+*   **`scans`**: Tracks which packages have been scanned.
+    *   `package_name`: Primary key (e.g., `hatchling`).
+    *   `last_scan`: Timestamp of the last scan.
+*   **`repositories`**: Stores metadata for GitHub repositories found during the Nixpkgs scan.
+    *   `package_name`: Foreign key to `scans`.
+    *   `nix_path`: Relative path to the Nix expression in Nixpkgs.
+    *   `owner`, `repo`: GitHub repository identification.
+    *   Primary key: `(package_name, owner, repo)`.
+*   **`search_runs`**: Records individual GitHub API search executions.
+    *   `id`: Primary key.
+    *   `package_name`: Foreign key to `scans`.
+    *   `search_string`: The exact string searched on GitHub.
+    *   `last_update`: Timestamp of the search.
+*   **`search_matches`**: Links search runs to found GitHub repositories.
+    *   `search_id`: Foreign key to `search_runs`.
+    *   `repo_full_name`: The `owner/repo` string of a match.
+    *   Primary key: `(search_id, repo_full_name)`.
 
-4.  **GitHub Search Integration and Resilience**:
-    *   **Feature**: Modified the script to read from `db.json` and perform targeted GitHub Code searches for packages not yet `searched_github`.
-    *   **Feature**: Implemented a **rate-limiting mechanism** (`time.sleep(6)`) to adhere to GitHub's API limits (10 requests per minute).
-    *   **Feature**: Added **retry logic** for `403 Forbidden` errors: wait 10 seconds and retry once, to handle temporary rate limit exhaustion.
-    *   **Feature**: Used `tqdm` to display a progress bar during the potentially long GitHub search process.
-    *   **Feature**: Updated the `found_on_github` flag based on search results.
+## Functional Components
 
-5.  **CLI Tool Conversion (Final Phase)**:
-    *   Refactored the script into a full-fledged CLI tool using `argparse`.
-    *   **Commands**:
-        *   `scan`: Scans `nixpkgs` for relevant packages. **Only inserts new entries** into `db.json`, preserving `searched_github` and `found_on_github` flags for existing entries.
-        *   `search`: Iterates through unsearched entries in `db.json`, performs GitHub searches, updates `searched_github` and `found_on_github` flags.
-            *   Includes an optional `--limit <number>` parameter to search a subset of entries (e.g., for testing or partial runs).
-            *   Includes an optional `--repo <owner/repo-name>` parameter to search a specific repository directly, updating its database entry.
-        *   `report`: Prints a summary of Nix packages (`path`, `owner/repo`) that have `found_on_github: true`.
-        *   `all`: Executes `scan`, then `search` (on all unsearched entries), then `report` in sequence.
+### 1. Specifier Parsing
+The tool accepts package specifiers in the format `package[operator][version]` (e.g., `hatchling==1.27.0`).
+- If an operator is provided, it generates two search variants: `package==version` and `package == version`.
+- If no operator is provided, it defaults to `==` and an empty version for scanning.
 
-## Current Status
+### 2. Nixpkgs Scanning (`scan`)
+- Uses `ripgrep` (`rg`) to efficiently find files containing the package name.
+- Parses selected Nix files for `fetchFromGitHub` blocks.
+- Extracts `owner` and `repo` attributes from these blocks.
+- Stores results in the `repositories` table, clearing old results for the same package.
 
-The CLI tool is fully functional. It can effectively:
-*   Discover Nixpkgs packages using `hatchling` and `fetchFromGitHub` (non-destructively updating the database).
-*   Maintain state in a `tinydb` database.
-*   Perform rate-limited, retrying searches on the GitHub Code Search API, either for a subset, all unsearched, or a specific repository.
-*   Generate a clear report of relevant findings.
+### 3. GitHub Code Search (`search`)
+- Requires a `GITHUB_TOKEN` in a `.env` file.
+- Performs exact-match searches for the version string within `pyproject.toml` files globaly.
+- Implements rate-limiting (10s delay between pages, 60s sleep on 403 errors).
+- Stores all matching repository names (`owner/repo`) in the `search_matches` table.
 
-This comprehensive approach allows for efficient tracking and analysis of Nixpkgs packages' dependencies on GitHub.
+### 4. Reporting (`report`)
+- Joins the latest search results with the repository data collected during the scan.
+- Groups results by the Nixpkgs file path.
+- Outputs a tab-separated list: `nix_path \t package1, package2, ...`.
 
-## Agent Operational Guidelines
+### 5. Management (`reset`)
+- Allows clearing data for specific packages or the entire database (`*`).
 
-*   **Commit Tested Code**: After completing and testing any code modifications, ensure changes are committed with a descriptive message.
+## Command Line Interface
+
+```bash
+python main.py [-n NIXPKGS_PATH] <command> <arguments>
+```
+
+### Commands:
+- `scan <specifiers>...`: Scans Nixpkgs for the given packages.
+- `search <specifiers>...`: Searches GitHub for the given version specifiers.
+- `report <specifiers>...`: Generates a report for the specifiers.
+- `all <specifiers>...`: Runs scan, search, and report in sequence.
+- `reset <packages>...`: Resets data for the named packages (or `*`).
+
+## Dependencies
+- `sqlite3`: Data persistence.
+- `requests`: GitHub API interaction.
+- `python-dotenv`: Environment variable management.
+- `tqdm`: Progress visualization.
+- `ripgrep` (`rg`): High-performance file searching (system dependency).
