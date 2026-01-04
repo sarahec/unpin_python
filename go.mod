@@ -1,3 +1,3 @@
-module nix-review-explorer
+module nix-hatchling-explorer
 
 go 1.25.2
