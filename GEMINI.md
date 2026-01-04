@@ -16,12 +16,13 @@ This project involved developing a Python CLI tool to identify Nixpkgs packages 
 
 The development progressed through several iterative steps, building up the functionality:
 
-1.  **Initial GitHub Search Program**:
-    *   A basic Python script (`github_search/main.py`) was created to query the GitHub Code Search API.
+1.  **Initial GitHub Search Program (Evolved into CLI)**
+    *   A basic Python script (`github_search/main.py`) was initially created to query the GitHub Code Search API.
     *   **Challenge**: Initial attempts at URL encoding led to `422 Client Error: Unprocessable Entity` due to `requests` over-encoding special characters like `:` in search qualifiers (e.g., `in:pyproject`).
     *   **Resolution**: Discovered that GitHub's API expects certain structured query components (`filename:`, `repo:`) to be part of the `q` parameter's value, which `requests` handles correctly without explicit manual encoding of internal components. Using `filename:` proved to be the correct qualifier for file targeting.
     *   **Feature**: Implemented pagination to retrieve all available search results (up to GitHub's internal limits).
     *   **Feature**: Extracted specific fields (`path`, `owner`, `repo`) from the raw API response.
+    *   *Note: This initial program's functionality was later integrated and expanded within the `fix_hatchling` CLI tool.*
 
 2.  **Nixpkgs Package Discovery (`fix_hatchling/main.py` - initial phase)**:
     *   A new script was developed to scan the local `../nixpkgs` directory.
@@ -44,17 +45,19 @@ The development progressed through several iterative steps, building up the func
 5.  **CLI Tool Conversion (Final Phase)**:
     *   Refactored the script into a full-fledged CLI tool using `argparse`.
     *   **Commands**:
-        *   `scan`: Scans `nixpkgs` and populates/updates `db.json` with new entries, marking them as unsearched.
-        *   `search`: Iterates through unsearched entries in `db.json`, performs GitHub searches, updates `searched_github` and `found_on_github` flags. Includes an optional `--limit` parameter to search a subset of entries.
+        *   `scan`: Scans `nixpkgs` for relevant packages. **Only inserts new entries** into `db.json`, preserving `searched_github` and `found_on_github` flags for existing entries.
+        *   `search`: Iterates through unsearched entries in `db.json`, performs GitHub searches, updates `searched_github` and `found_on_github` flags.
+            *   Includes an optional `--limit <number>` parameter to search a subset of entries (e.g., for testing or partial runs).
+            *   Includes an optional `--repo <owner/repo-name>` parameter to search a specific repository directly, updating its database entry.
         *   `report`: Prints a summary of Nix packages (`path`, `owner/repo`) that have `found_on_github: true`.
-        *   `all`: Executes `scan`, then `search`, then `report` in sequence.
+        *   `all`: Executes `scan`, then `search` (on all unsearched entries), then `report` in sequence.
 
 ## Current Status
 
 The CLI tool is fully functional. It can effectively:
-*   Discover Nixpkgs packages using `hatchling` and `fetchFromGitHub`.
+*   Discover Nixpkgs packages using `hatchling` and `fetchFromGitHub` (non-destructively updating the database).
 *   Maintain state in a `tinydb` database.
-*   Perform rate-limited, retrying searches on the GitHub Code Search API.
-*   Generate a report of relevant findings.
+*   Perform rate-limited, retrying searches on the GitHub Code Search API, either for a subset, all unsearched, or a specific repository.
+*   Generate a clear report of relevant findings.
 
 This comprehensive approach allows for efficient tracking and analysis of Nixpkgs packages' dependencies on GitHub.
