@@ -52,3 +52,4 @@ node_modules/
 
 
 
+\n# From fix_hatchling\ndb.json\n__pycache__/\n*.pyc\n.env\n.venv/
