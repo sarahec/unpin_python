@@ -21,7 +21,7 @@ def search_github_all_repos(query, token):
                 all_items.extend(data.get("items", []))
                 url = response.links.get('next', {}).get('url')
                 pbar.update(1)
-                if url: time.sleep(6) # Adhere to rate limit: 10 requests/minute
+                if url: time.sleep(10) # Adhere to rate limit
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 403:
                     tqdm.write(f"-> Rate limit hit. Waiting 60s for {url}...", file=sys.stderr)
