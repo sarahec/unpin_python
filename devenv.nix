@@ -11,9 +11,19 @@
   ];
 
   # https://devenv.sh/languages/
-  languages.go.enable = true;
   languages.nix.enable = true;
-
+  languages.python = {
+    enable = true;
+    venv = {
+      enable = true;
+      requirements = ''
+        python-dotenv
+        requests
+        tinydb
+        tqdm
+      ''; 
+    };
+  };
   dotenv.enable = true;
 
   # https://devenv.sh/processes/
