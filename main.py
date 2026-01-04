@@ -1,33 +1,32 @@
 import argparse
-import json
 import os
 import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 import requests
 from dotenv import load_dotenv
 from tinydb import TinyDB, Query
 from tqdm import tqdm
 
-DB_PATH = 'db.json'
+DB_PATH = 'db.scratch.json'
 
-# --- Argparse Helper Functions ---
-def positive_int(value):
-    try:
-        ivalue = int(value)
-        if ivalue <= 0:
-            raise argparse.ArgumentTypeError(f"{value} is not a positive integer")
-        return ivalue
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"{value} is not an integer")
+def parse_specifier(spec_str):
+    match = re.search(r'(==|!=|>=|<=|>|<)', spec_str)
+    if match:
+        op = match.group(1)
+        package_name = spec_str[:match.start()].strip()
+        version_part = spec_str[match.end():].strip()
+        search_string_with_spaces = f"{package_name} {op} {version_part}"
+        canonical_search_string = f"{package_name}{op}{version_part}"
+        return package_name, search_string_with_spaces, canonical_search_string
+    else:
+        package_name = spec_str.strip()
+        search_string_with_spaces = f"{package_name} == "
+        canonical_search_string = f"{package_name}=="
+        return package_name, search_string_with_spaces, canonical_search_string
 
-def repo_format(value):
-    if '/' not in value or len(value.split('/')) != 2:
-        raise argparse.ArgumentTypeError(f"Repository '{value}' is not in 'owner/repo' format.")
-    return value
-
-# --- Nixpkgs Scanning Logic ---
 def find_package_files(search_dir, package_name):
     try:
         cmd = ["rg", "-l", "--ignore-case", package_name, search_dir]
@@ -44,7 +43,7 @@ def extract_repo_info(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        block_pattern = re.compile(r'fetchFromGitHub\s*{\s*([\s\S]*?)\s*};', re.DOTALL)
+        block_pattern = re.compile(r'fetchFromGitHub\s*\{([\s\S]*?)\};', re.DOTALL)
         owner_pattern = re.compile(r'owner\s*=\s*"([^"]+)"')
         repo_pattern = re.compile(r'repo\s*=\s*"([^"]+)"')
         
@@ -61,54 +60,48 @@ def extract_repo_info(file_path):
         tqdm.write(f"Could not process file {file_path}: {e}", file=sys.stderr)
         return []
 
-def run_scan(package_name):
-    print(f"--- Starting Nixpkgs Scan for '{package_name}' ---")
-    nixpkgs_path = os.path.abspath("../nixpkgs")
-
+def run_scan(package_name, nixpkgs_path):
+    if not nixpkgs_path:
+        print("--- Skipping Nixpkgs Scan: --nixpkgs-path not provided ---")
+        return
+        
+    print(f"--- Starting Nixpkgs Scan for '{package_name}' in {nixpkgs_path} ---")
     if not os.path.isdir(nixpkgs_path):
         print(f"Error: Nixpkgs directory not found at {nixpkgs_path}")
         return
 
     files = find_package_files(nixpkgs_path, package_name)
     if not files:
-        print(f"No files referencing '{package_name}' were found.")
+        print(f"No files referencing '{package_name}' were found in {nixpkgs_path}.")
         return
 
     print(f"Found {len(files)} files. Extracting repository info...")
-    all_packages = [info for path in tqdm(files, desc="Scanning files") for info in extract_repo_info(path)]
-    unique_packages = [dict(t) for t in {tuple(d.items()) for d in all_packages}]
+    all_repos = [info for path in tqdm(files, desc="Scanning files") for info in extract_repo_info(path)]
+    unique_repos = [dict(t) for t in {tuple(d.items()) for d in all_repos}]
     
     db = TinyDB(DB_PATH)
-    Package = Query()
-    count = 0
-    print(f"Upserting {len(unique_packages)} unique packages...")
-    for pkg in tqdm(unique_packages, desc="Updating database"):
-        pkg_data = {**pkg, 'package': package_name, 'searched_github': False, 'found_on_github': False}
-        db.upsert(pkg_data, (Package.owner == pkg['owner']) & (Package.repo == pkg['repo']))
-        count += 1
-            
-    print(f"Scan complete. Upserted {count} packages for '{package_name}'.")
+    scans_table = db.table('scans')
+    scans_table.upsert(
+        {'package_name': package_name, 'last_scan': datetime.now(timezone.utc).isoformat(), 'repositories': unique_repos},
+        Query().package_name == package_name
+    )
+    print(f"Scan complete. Upserted {len(unique_repos)} unique repositories for '{package_name}'.")
 
-# --- GitHub Searching Logic ---
 def search_github_all_repos(query, token):
-    """Performs a paginated search across all of GitHub."""
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
     url = f"https://api.github.com/search/code?q={query}&per_page=100"
     all_items = []
     
-    with tqdm(desc="Fetching GitHub pages") as pbar:
+    with tqdm(desc="Fetching GitHub pages", leave=False) as pbar:
         while url:
             try:
                 response = requests.get(url, headers=headers)
                 response.raise_for_status()
                 data = response.json()
-                items = data.get("items", [])
-                all_items.extend(items)
-                
+                all_items.extend(data.get("items", []))
                 url = response.links.get('next', {}).get('url')
                 pbar.update(1)
-                if url:
-                    time.sleep(6) # Adhere to rate limit
+                if url: time.sleep(6)
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 403:
                     tqdm.write("-> Rate limit hit. Waiting 60s...", file=sys.stderr)
@@ -121,8 +114,7 @@ def search_github_all_repos(query, token):
                 break
     return all_items
 
-
-def run_search(package_name, version=None):
+def run_search(package_name, search_string_with_spaces, canonical_search_string):
     load_dotenv()
     github_token = os.getenv("GITHUB_TOKEN")
     if not github_token or github_token == "your_github_token_here":
@@ -130,77 +122,95 @@ def run_search(package_name, version=None):
         return
         
     db = TinyDB(DB_PATH)
-    Package = Query()
-    
-    search_term = f"{package_name}=={version}" if version else package_name
-    print(f"--- Starting GitHub-wide search for '{search_term}' in pyproject.toml ---")
+    scans_table = db.table('scans')
+    scan_result = scans_table.get(Query().package_name == package_name)
+    if not scan_result or not scan_result.get('repositories'):
+        print(f"No scan data found for '{package_name}'. A scan must be run at least once.")
+        return
 
-    query = f'"{search_term}"+filename:pyproject.toml'
-    github_results = search_github_all_repos(query, github_token)
+    print(f"--- Starting GitHub-wide search for '{canonical_search_string}' (and variants) ---")
     
-    if not github_results:
-        print("No results found on GitHub.")
+    query1 = f'"{canonical_search_string}"+filename:pyproject.toml'
+    print(f"Searching for: {canonical_search_string}")
+    results1 = search_github_all_repos(query1, github_token)
+    
+    results2 = []
+    if search_string_with_spaces != canonical_search_string:
+        query2 = f'"{search_string_with_spaces}"+filename:pyproject.toml'
+        print(f"Searching for: {search_string_with_spaces}")
+        results2 = search_github_all_repos(query2, github_token)
+
+    all_github_results = {item['repository']['full_name']: item for item in results1}
+    all_github_results.update({item['repository']['full_name']: item for item in results2})
+    
+    found_repos_on_github = set(all_github_results.keys())
+    
+    if not found_repos_on_github:
+        print("No results found on GitHub for either query variant.")
         return
         
-    # Create a set of owner/repo strings for efficient lookup
-    found_repos = {item['repository']['full_name'] for item in github_results}
-    print(f"\nFound {len(found_repos)} unique repositories on GitHub with matches.")
+    print(f"\nFound {len(found_repos_on_github)} unique repositories on GitHub with matches.")
 
-    # Now, update the local database
-    print("Updating local database...")
-    all_local_packages = db.search(Package.package == package_name)
+    local_repos = scan_result['repositories']
+    matches = [repo_info for repo_info in local_repos if f"{repo_info['owner']}/{repo_info['repo']}" in found_repos_on_github]
     
-    for package in tqdm(all_local_packages, desc="Updating local DB"):
-        repo_full_name = f"{package['owner']}/{package['repo']}"
-        found = repo_full_name in found_repos
-        db.update({'searched_github': True, 'found_on_github': found}, doc_ids=[package.doc_id])
-        
-    print("Search and database update complete.")
+    searches_table = db.table('searches')
+    searches_table.insert({
+        "package_name": package_name,
+        "search_string": canonical_search_string,
+        "last_update": datetime.now(timezone.utc).isoformat(),
+        "results": matches
+    })
+    print(f"Search complete. Stored {len(matches)} matches in the database for '{canonical_search_string}'.")
 
-# --- Reporting Logic ---
-def run_report(package_name):
-    # (The report function remains the same)
-    print(f"--- Generating Report for '{package_name}' ---")
+def run_report(package_name, canonical_search_string):
+    print(f"--- Generating Report for '{package_name}' (search: '{canonical_search_string}') ---")
     db = TinyDB(DB_PATH)
-    matches = db.search((Query().found_on_github == True) & (Query().package == package_name))
-    if not matches:
-        print("No packages with GitHub matches found in the database for this package.")
+    searches_table = db.table('searches')
+    
+    all_searches = sorted(
+        searches_table.search((Query().package_name == package_name) & (Query().search_string == canonical_search_string)),
+        key=lambda x: x['last_update'],
+        reverse=True
+    )
+    
+    if not all_searches:
+        print("No searches have been run for this package/version specifier.")
         return
+
+    latest_search = all_searches[0]
+    matches = latest_search['results']
+    
+    if not matches:
+        print(f"The latest search found no matching packages in Nixpkgs.")
+        return
+        
     print(f"Found {len(matches)} Nix packages with corresponding GitHub matches:")
     for match in matches:
         print(f"  - Nixpkgs Path: {match['path']}")
         print(f"    Repository:   {match['owner']}/{match['repo']}\n")
 
-# --- Main CLI Logic ---
 def main():
-    parser = argparse.ArgumentParser(description="Find package versions in Nixpkgs and verify on GitHub.")
-    parser.add_argument("package", help="The name of the package to process (e.g., 'hatchling').")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    subparsers.add_parser("scan", help="Scan nixpkgs and populate the database, resetting search status for found packages.")
-    
-    search_parser = subparsers.add_parser("search", help="Search all of GitHub for the package and update local DB.")
-    search_parser.add_argument("--version", help="The specific version to search for (e.g., '1.27.0'). Optional.")
-
-    subparsers.add_parser("report", help="Report which nixpkgs files have a GitHub match for the package.")
-    
-    all_parser = subparsers.add_parser("all", help="Run scan, search, and report in order for the package.")
-    all_parser.add_argument("--version", help="The version to use for the 'search' step. Optional.")
+    parser = argparse.ArgumentParser(description="A tool to correlate Nixpkgs packages with GitHub search results.")
+    parser.add_argument("-n", "--nixpkgs-path", default=os.path.abspath("../nixpkgs"), help="Path to your local nixpkgs clone.")
+    parser.add_argument("command", choices=['scan', 'search', 'report', 'all'], help="The command to execute.")
+    parser.add_argument("specifier", help="The package and optional version to process (e.g., 'hatchling', 'hatchling==1.27.0').")
 
     args = parser.parse_args()
+    
+    package_name, search_string_with_spaces, canonical_search_string = parse_specifier(args.specifier)
 
     if args.command == "scan":
-        run_scan(args.package)
+        run_scan(package_name, args.nixpkgs_path)
     elif args.command == "search":
-        run_search(args.package, version=args.version)
+        run_search(package_name, search_string_with_spaces, canonical_search_string)
     elif args.command == "report":
-        run_report(args.package)
+        run_report(package_name, canonical_search_string)
     elif args.command == "all":
-        version_str = f" with version '{args.version}'" if args.version else ""
-        print(f"Running all steps for package '{args.package}'{version_str}...")
-        run_scan(args.package)
-        run_search(args.package, version=args.version)
-        run_report(args.package)
+        print(f"Running all steps for specifier '{args.specifier}'...")
+        run_scan(package_name, args.nixpkgs_path)
+        run_search(package_name, search_string_with_spaces, canonical_search_string)
+        run_report(package_name, canonical_search_string)
 
 if __name__ == "__main__":
     main()
