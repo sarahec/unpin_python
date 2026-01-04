@@ -1,17 +1,18 @@
 import sqlite3
+import json
 from datetime import datetime, timezone
 
 class Database:
     """A wrapper class for all database interactions using a normalized SQLite schema."""
 
     def __init__(self, db_path):
+        """Initializes the SQLite database and creates tables if they don't exist."""
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         self._create_tables()
 
     def _create_tables(self):
-        """Creates the necessary tables with a normalized schema."""
-        # Table to store which nixpkgs files are associated with a package scan
+        """Creates the necessary tables for scans and searches."""
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS scan_results (
                 package_name TEXT,
@@ -21,7 +22,6 @@ class Database:
                 PRIMARY KEY (package_name, owner, repo)
             )
         ''')
-        # Table to store the metadata for each search run
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS search_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,7 +30,6 @@ class Database:
                 last_update TEXT
             )
         ''')
-        # Table to link search runs to the repositories found on GitHub
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS search_matches (
                 search_id INTEGER,
@@ -43,7 +42,6 @@ class Database:
     def upsert_scan_result(self, package_name, repositories):
         """
         Inserts or replaces the repositories found for a given package scan.
-        It first clears old results for the package to ensure the scan is fresh.
         """
         self.cursor.execute('DELETE FROM scan_results WHERE package_name = ?', (package_name,))
         
@@ -70,14 +68,12 @@ class Database:
         """
         Inserts a new search run and its associated matches into the database.
         """
-        # 1. Insert the search run metadata
         self.cursor.execute('''
             INSERT INTO search_runs (package_name, search_string, last_update)
             VALUES (?, ?, ?)
         ''', (package_name, search_string, datetime.now(timezone.utc).isoformat()))
         search_id = self.cursor.lastrowid
         
-        # 2. Insert all the repos that were found on GitHub for this search
         if found_repos_on_github:
             match_data = [(search_id, repo_full_name) for repo_full_name in found_repos_on_github]
             self.cursor.executemany('''
@@ -92,7 +88,6 @@ class Database:
         """
         Finds the most recent search and joins its results with scanned repositories.
         """
-        # 1. Find the ID of the most recent relevant search
         self.cursor.execute('''
             SELECT id FROM search_runs
             WHERE package_name = ? AND search_string = ?
@@ -104,7 +99,6 @@ class Database:
             return None
         latest_search_id = row[0]
         
-        # 2. Join the results of that search with the scan data
         self.cursor.execute('''
             SELECT DISTINCT
                 s.nix_path,
@@ -121,3 +115,11 @@ class Database:
     def close(self):
         """Closes the database connection."""
         self.conn.close()
+
+    @staticmethod
+    def dumps_json(data):
+        return json.dumps(data)
+
+    @staticmethod
+    def loads_json(json_string):
+        return json.loads(json_string)

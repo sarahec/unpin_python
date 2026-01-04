@@ -21,6 +21,8 @@
         python-dotenv
         requests
         tqdm
+        pytest
+        pytest-mock
       ''; 
     };
   };
