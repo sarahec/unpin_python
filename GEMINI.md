@@ -68,6 +68,9 @@ The tool accepts package specifiers in the format `package[operator][version]` (
 python main.py [-n NIXPKGS_PATH] <command> <arguments>
 ```
 
+### Options:
+- `-n, --nixpkgs-path`: Path to your local nixpkgs clone. If not provided, the tool will check the `NIXPKGS` environment variable, falling back to `../nixpkgs` if that is also unset.
+
 ### Commands:
 - `scan <specifiers>...`: Scans Nixpkgs for the given packages.
 - `search <specifiers>...`: Searches GitHub for the given version specifiers.

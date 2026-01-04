@@ -28,7 +28,7 @@ def parse_specifier(spec_str):
 
 def main():
     parser = argparse.ArgumentParser(description="A tool to correlate Nixpkgs packages with GitHub search results.")
-    parser.add_argument("-n", "--nixpkgs-path", default=os.path.abspath("../nixpkgs"), help="Path to your local nixpkgs clone.")
+    parser.add_argument("-n", "--nixpkgs-path", default=os.environ.get("NIXPKGS", os.path.abspath("../nixpkgs")), help="Path to your local nixpkgs clone. Can also be set via the NIXPKGS environment variable.")
     
     subparsers = parser.add_subparsers(dest="command", required=True, help="The command to execute.")
 
