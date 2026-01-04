@@ -50,6 +50,16 @@ node_modules/
 # jujutsu
 .jj
 
+# databases
+db.json
+db.sqlite
+db.scratch.*
 
+# cache
+__pycache__
+*.pyc
+.pytest_cache
 
-\n# From fix_hatchling\ndb.json\n__pycache__/\n*.pyc\n.env\n.venv/
+# venv
+.venv
+
