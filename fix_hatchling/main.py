@@ -136,7 +136,7 @@ def run_search(limit=None, repo_str=None):
     if repo_str:
         owner, repo = repo_str.split('/', 1)
         print(f"--- Starting GitHub Search for specific repository: {owner}/{repo} ---")
-        query = f'hatchling==1.27.0+filename:pyproject.toml+repo:{owner}/{repo}'
+        query = f'hatchling==+filename:pyproject.toml+repo:{owner}/{repo}'
         result = search_github(query, github_token)
         found = result and result.get("total_count", 0) > 0
         
