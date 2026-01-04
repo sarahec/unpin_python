@@ -21,11 +21,11 @@ def search_github_all_repos(query, token):
                 all_items.extend(data.get("items", []))
                 url = response.links.get('next', {}).get('url')
                 pbar.update(1)
-                if url: time.sleep(6)
+                if url: time.sleep(6) # Adhere to rate limit: 10 requests/minute
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 403:
                     tqdm.write(f"-> Rate limit hit. Waiting 60s for {url}...", file=sys.stderr)
-                    time.sleep(60)
+                    time.sleep(60) # Wait 1 minute if rate limit is hit
                 else:
                     tqdm.write(f"HTTP error for {url}: {e}", file=sys.stderr)
                     break
@@ -51,12 +51,14 @@ def run_search(package_name, search_string_with_spaces, canonical_search_string,
     print(f"--- Starting GitHub-wide search for '{canonical_search_string}' (and variants) ---")
     
     query1 = f'"{canonical_search_string}"+filename:pyproject.toml'
+    print(f"Searching for: {canonical_search_string}")
     results1 = search_github_all_repos(query1, github_token)
     
     all_github_results_map = {item['repository']['full_name']: item for item in results1}
 
     if search_string_with_spaces != canonical_search_string:
         query2 = f'"{search_string_with_spaces}"+filename:pyproject.toml'
+        print(f"Searching for: {search_string_with_spaces}")
         results2 = search_github_all_repos(query2, github_token)
         all_github_results_map.update({item['repository']['full_name']: item for item in results2})
     

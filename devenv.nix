@@ -8,6 +8,7 @@
     antlr4
     dotenvx
     git
+    sqlite
   ];
 
   # https://devenv.sh/languages/
@@ -19,7 +20,6 @@
       requirements = ''
         python-dotenv
         requests
-        tinydb
         tqdm
       ''; 
     };

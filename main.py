@@ -6,17 +6,28 @@ from scan import run_scan
 from search import run_search
 from report import run_report
 
-DB_PATH = 'db.scratch.json'
+# Changed DB_PATH to use .sqlite extension
+DB_PATH = 'db.sqlite'
 
 def parse_specifier(spec_str):
     match = re.search(r'(==|!=|>=|<=|>|<)', spec_str)
+    
     if match:
         op = match.group(1)
-        package_name = spec_str[:match.start()].strip()
-        version_part = spec_str[match.end():].strip()
-        search_string_with_spaces = f"{package_name} {op} {version_part}"
-        canonical_search_string = f"{package_name}{op}{version_part}"
-        return package_name, search_string_with_spaces, canonical_search_string
+        # Split by the operator, handle potential empty strings if operator is at start/end
+        parts = re.split(f'({re.escape(op)})', spec_str, 1)
+        
+        # Ensure there are at least 3 parts: [before_op, op, after_op]
+        if len(parts) >= 3:
+            package_name = parts[0].strip()
+            version_part = parts[2].strip()
+            
+            search_string_with_spaces = f"{package_name} {op} {version_part}"
+            canonical_search_string = f"{package_name}{op}{version_part}"
+            return package_name, search_string_with_spaces, canonical_search_string
+        else:
+            package_name = spec_str.strip()
+            return package_name, package_name, package_name
     else:
         package_name = spec_str.strip()
         search_string_with_spaces = f"{package_name} == "
