@@ -36,9 +36,9 @@ def search_github_all_repos(query, token):
 
 def run_search(package_name, search_string_with_spaces, canonical_search_string, db_path):
     load_dotenv()
-    github_token = os.getenv("GITHUB_TOKEN")
+    github_token = os.getenv("GITHUB_SEARCH_TOKEN")
     if not github_token or github_token == "your_github_token_here":
-        print("Error: GITHUB_TOKEN not found.")
+        print("Error: GITHUB_SEARCH_TOKEN not found.")
         return
         
     db = Database(db_path)

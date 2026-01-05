@@ -31,7 +31,7 @@ The Nixpkgs Version Correlation Tool identifies pinned Python build tools and de
 3.  **Setup Environment Variables**:
     Create a `.env` file in the project root:
     ```env
-    GITHUB_TOKEN=your_github_token_here
+    GITHUB_SEARCH_TOKEN=your_github_token_here
     NIXPKGS=/path/to/your/nixpkgs
     ```
 

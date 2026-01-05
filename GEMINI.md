@@ -49,7 +49,7 @@ The tool accepts package specifiers in the format `package[operator][version]` (
 - Stores results in the `repositories` table, clearing old results for the same package.
 
 ### 3. GitHub Code Search (`search`)
-- Requires a `GITHUB_TOKEN` in a `.env` file.
+- Requires a `GITHUB_SEARCH_TOKEN` in a `.env` file.
 - Performs exact-match searches for the version string within `pyproject.toml` files globaly.
 - Implements rate-limiting (10s delay between pages, 60s sleep on 403 errors).
 - Stores all matching repository names (`owner/repo`) in the `search_matches` table.
